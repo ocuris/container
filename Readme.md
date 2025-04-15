@@ -18,7 +18,6 @@ A lightweight, idiomatic Go library offering core data structures inspired by Py
 - ✅ **Tree (Binary Trees)**
 - ✅ **Tree Traversals**
 - ✅ **Utility Functions** (Sorting, Searching, etc.)
-- ✅ **While-loop Style Iteration** for containers
 
 ---
 
@@ -156,28 +155,6 @@ g := graph.New()
 g.AddEdge("A", "B")
 g.AddEdge("A", "C")
 fmt.Println(g.Neighbors("A")) // => [B C]
-```
-
-### 🔁 While-Loop Style Iteration
-
-Inspired by Python's `for` loop, this library supports a `while`-like iteration style to consume elements from containers.
-
-```go
-// Mimics Python-style while loops for consuming elements
-for !q.IsEmpty() {
-    val := q.Dequeue()
-    fmt.Println(val)
-}
-
-for !s.IsEmpty() {
-    val := s.Pop()
-    fmt.Println(val)
-}
-
-for !pq.IsEmpty() {
-    val := pq.Pop()
-    fmt.Println(val)
-}
 ```
 
 ---
