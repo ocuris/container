@@ -1,133 +1,205 @@
 package heap
 
-// Ordered defines types that support the built-in comparison operators.
-// The tilde (~) allows types with underlying type int or float64.
-type Ordered interface {
-	~int | ~float64
+// Comparator defines a function type that compares two elements.
+// It should return:
+//   - negative if a < b
+//   - zero if a == b
+//   - positive if a > b
+type Comparator[T any] func(a, b T) int
+
+// PriorityQueue is a generic heap that can be configured with a custom comparator.
+type PriorityQueue[T any] struct {
+	data       []T
+	comparator Comparator[T]
+	capacity   int // maximum capacity; if <= 0, the queue is unbounded
 }
 
-// pq is a generic heap structure that can operate as either a min-heap or a max-heap.
-// The 'min' field determines its behavior:
-//   - true: min-heap (the smallest element is at the top)
-//   - false: max-heap (the largest element is at the top)
-type pq[T Ordered] struct {
-	data []T
-	cap  int  // maximum capacity; if non-zero, the heap is bounded
-	min  bool // if true: min-heap; if false: max-heap
+// New creates a new PriorityQueue with the given comparator.
+func New[T any](comparator Comparator[T]) *PriorityQueue[T] {
+	return &PriorityQueue[T]{
+		data:       make([]T, 0),
+		comparator: comparator,
+		capacity:   0,
+	}
 }
 
-const defaultCap = 0
+// NewWithCapacity creates a new bounded PriorityQueue with the given comparator and capacity.
+func NewWithCapacity[T any](comparator Comparator[T], capacity int) *PriorityQueue[T] {
+	if capacity <= 0 {
+		panic("heap: capacity must be positive")
+	}
+	return &PriorityQueue[T]{
+		data:       make([]T, 0, capacity),
+		comparator: comparator,
+		capacity:   capacity,
+	}
+}
 
-// New creates a new default min-heap.
-func New[T Ordered]() *pq[T] {
-	return &pq[T]{
+// NewOrdered creates a new min-heap for ordered types (supports <, > operators).
+func NewOrdered[T Ordered]() *PriorityQueue[T] {
+	return &PriorityQueue[T]{
 		data: make([]T, 0),
-		cap:  0,
-		min:  true,
+		comparator: func(a, b T) int {
+			if a < b {
+				return -1
+			}
+			if a > b {
+				return 1
+			}
+			return 0
+		},
 	}
 }
 
-// NewMin creates a new min-heap with an optional capacity.
-func NewMin[T Ordered](size ...int) *pq[T] {
-	actualCap := defaultCap
-	if len(size) > 0 {
-		if size[0] <= 0 {
-			panic("heap: invalid capacity")
+// NewOrderedMax creates a new max-heap for ordered types.
+func NewOrderedMax[T Ordered]() *PriorityQueue[T] {
+	return &PriorityQueue[T]{
+		data: make([]T, 0),
+		comparator: func(a, b T) int {
+			if a > b {
+				return -1
+			}
+			if a < b {
+				return 1
+			}
+			return 0
+		},
+	}
+}
+
+// Ordered defines types that support the built-in comparison operators.
+type Ordered interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr |
+		~float32 | ~float64 |
+		~string
+}
+
+// Push inserts an element into the queue.
+// If the queue is bounded and full, it removes the lowest priority element first.
+func (pq *PriorityQueue[T]) Push(x T) bool {
+	if pq.capacity > 0 && len(pq.data) >= pq.capacity {
+		// For bounded queue, check if new element has higher priority than current min
+		if pq.comparator(x, pq.data[0]) <= 0 {
+			return false // New element has lower priority, don't add it
 		}
-		actualCap = size[0]
+		pq.Pop() // Remove lowest priority element to make space
 	}
-	return &pq[T]{
-		data: make([]T, 0, actualCap),
-		cap:  actualCap,
-		min:  true,
-	}
+	pq.data = append(pq.data, x)
+	pq.bubbleUp(len(pq.data) - 1)
+	return true
 }
 
-// NewMax creates a new max-heap with an optional capacity.
-func NewMax[T Ordered](size ...int) *pq[T] {
-	actualCap := defaultCap
-	if len(size) > 0 {
-		if size[0] <= 0 {
-			panic("heap: invalid capacity")
+// Pop removes and returns the highest priority element from the queue.
+func (pq *PriorityQueue[T]) Pop() (T, bool) {
+	if len(pq.data) == 0 {
+		var zero T
+		return zero, false
+	}
+	top := pq.data[0]
+	last := len(pq.data) - 1
+	pq.data[0] = pq.data[last]
+	pq.data = pq.data[:last]
+	pq.bubbleDown(0)
+	return top, true
+}
+
+// Peek returns the highest priority element without removing it.
+func (pq *PriorityQueue[T]) Peek() (T, bool) {
+	if len(pq.data) == 0 {
+		var zero T
+		return zero, false
+	}
+	return pq.data[0], true
+}
+
+// Len returns the number of elements in the queue.
+func (pq *PriorityQueue[T]) Len() int {
+	return len(pq.data)
+}
+
+// IsEmpty returns true if the queue is empty.
+func (pq *PriorityQueue[T]) IsEmpty() bool {
+	return len(pq.data) == 0
+}
+
+// Clear removes all elements from the queue.
+func (pq *PriorityQueue[T]) Clear() {
+	pq.data = pq.data[:0]
+}
+
+// Contains checks if the queue contains the given element.
+// Note: This is an O(n) operation.
+func (pq *PriorityQueue[T]) Contains(x T, equals func(a, b T) bool) bool {
+	for _, item := range pq.data {
+		if equals(item, x) {
+			return true
 		}
-		actualCap = size[0]
 	}
-	return &pq[T]{
-		data: make([]T, 0, actualCap),
-		cap:  actualCap,
-		min:  false,
-	}
+	return false
 }
 
-// compare is an internal helper that returns true if a has higher priority than b.
-// For min-heaps, lower values have higher priority (a < b).
-// For max-heaps, higher values have higher priority (a > b).
-func (h *pq[T]) compare(a, b T) bool {
-	if h.min {
-		return a < b
+// Remove removes the first occurrence of the specified element from the queue.
+// Returns true if the element was found and removed.
+// Note: This is an O(n) operation.
+func (pq *PriorityQueue[T]) Remove(x T, equals func(a, b T) bool) bool {
+	for i, item := range pq.data {
+		if equals(item, x) {
+			pq.removeAt(i)
+			return true
+		}
 	}
-	return a > b
+	return false
 }
 
-// Push inserts an element into the heap.
-// If the heap is bounded (cap != 0) and full, it removes the top element first.
-func (h *pq[T]) Push(x T) {
-	if h.cap != 0 && len(h.data) == h.cap {
-		h.Pop() // Bounded behavior: remove top element to make space.
+// removeAt removes the element at the specified position.
+func (pq *PriorityQueue[T]) removeAt(i int) {
+	n := len(pq.data) - 1
+	if n != i {
+		pq.data[i] = pq.data[n]
+		pq.data = pq.data[:n]
+		if !pq.bubbleDown(i) {
+			pq.bubbleUp(i)
+		}
+	} else {
+		pq.data = pq.data[:n]
 	}
-	h.data = append(h.data, x)
-	h.bubbleUp(len(h.data) - 1)
-}
-
-// Pop removes and returns the top element from the heap.
-// For a min-heap, this is the smallest element; for a max-heap, the largest.
-func (h *pq[T]) Pop() T {
-	if len(h.data) == 0 {
-		panic("heap: pop from empty heap")
-	}
-	top := h.data[0]
-	last := len(h.data) - 1
-	// Move the last element to the root and then shorten the slice.
-	h.data[0] = h.data[last]
-	h.data = h.data[:last]
-	h.bubbleDown(0)
-	return top
-}
-
-// Len returns the current number of elements in the heap.
-func (h *pq[T]) Len() int {
-	return len(h.data)
 }
 
 // bubbleUp restores the heap property from index i upward.
-func (h *pq[T]) bubbleUp(i int) {
+func (pq *PriorityQueue[T]) bubbleUp(i int) {
 	for i > 0 {
 		parent := (i - 1) / 2
-		if !h.compare(h.data[i], h.data[parent]) {
+		if pq.comparator(pq.data[i], pq.data[parent]) >= 0 {
 			break
 		}
-		h.data[i], h.data[parent] = h.data[parent], h.data[i]
+		pq.data[i], pq.data[parent] = pq.data[parent], pq.data[i]
 		i = parent
 	}
 }
 
 // bubbleDown restores the heap property from index i downward.
-func (h *pq[T]) bubbleDown(i int) {
-	n := len(h.data)
+// Returns true if any swaps occurred.
+func (pq *PriorityQueue[T]) bubbleDown(i int) bool {
+	n := len(pq.data)
+	swapped := false
 	for {
-		best := i
+		smallest := i
 		left := 2*i + 1
 		right := 2*i + 2
-		if left < n && h.compare(h.data[left], h.data[best]) {
-			best = left
+
+		if left < n && pq.comparator(pq.data[left], pq.data[smallest]) < 0 {
+			smallest = left
 		}
-		if right < n && h.compare(h.data[right], h.data[best]) {
-			best = right
+		if right < n && pq.comparator(pq.data[right], pq.data[smallest]) < 0 {
+			smallest = right
 		}
-		if best == i {
+		if smallest == i {
 			break
 		}
-		h.data[i], h.data[best] = h.data[best], h.data[i]
-		i = best
+		pq.data[i], pq.data[smallest] = pq.data[smallest], pq.data[i]
+		i = smallest
+		swapped = true
 	}
+	return swapped
 }
