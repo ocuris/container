@@ -1,112 +1,124 @@
 package heap
 
-import (
-	"sort"
-)
-
-// Item represents a single element in the priority queue
-type Item struct {
-	Value    any
-	Priority int
+// Ordered defines types that support the built-in comparison operators.
+// The tilde (~) allows types with underlying type int or float64.
+type Ordered interface {
+	~int | ~float64
 }
 
-// PriorityQueue represents a slice-based max-heap priority queue
-type PriorityQueue []Item
-
-// Push adds an item to the priority queue and maintains heap property
-func (pq *PriorityQueue) Push(item Item) {
-	*pq = append(*pq, item)
-	pq.heapifyUp(len(*pq) - 1)
+// pq is a generic heap structure that can operate as either a min-heap or a max-heap.
+// The 'min' field determines its behavior:
+//   - true: min-heap (the smallest element is at the top)
+//   - false: max-heap (the largest element is at the top)
+type pq[T Ordered] struct {
+	data []T
+	cap  int  // maximum capacity; if non-zero, the heap is bounded
+	min  bool // if true: min-heap; if false: max-heap
 }
 
-// Pop removes and returns the highest priority item
-func (pq *PriorityQueue) Pop() Item {
-	n := len(*pq)
-	if n == 0 {
-		return Item{}
+const defaultCap = 16
+
+// NewMin creates a new min-heap with an optional capacity.
+func NewMin[T Ordered](size ...int) *pq[T] {
+	actualCap := defaultCap
+	if len(size) > 0 {
+		if size[0] <= 0 {
+			panic("heap: invalid capacity")
+		}
+		actualCap = size[0]
 	}
-	top := (*pq)[0]
-	(*pq)[0] = (*pq)[n-1]
-	*pq = (*pq)[:n-1]
-	pq.heapifyDown(0)
+	return &pq[T]{
+		data: make([]T, 0, actualCap),
+		cap:  actualCap,
+		min:  true,
+	}
+}
+
+// NewMax creates a new max-heap with an optional capacity.
+func NewMax[T Ordered](size ...int) *pq[T] {
+	actualCap := defaultCap
+	if len(size) > 0 {
+		if size[0] <= 0 {
+			panic("heap: invalid capacity")
+		}
+		actualCap = size[0]
+	}
+	return &pq[T]{
+		data: make([]T, 0, actualCap),
+		cap:  actualCap,
+		min:  false,
+	}
+}
+
+// compare is an internal helper that returns true if a has higher priority than b.
+// For min-heaps, lower values have higher priority (a < b).
+// For max-heaps, higher values have higher priority (a > b).
+func (h *pq[T]) compare(a, b T) bool {
+	if h.min {
+		return a < b
+	}
+	return a > b
+}
+
+// Push inserts an element into the heap.
+// If the heap is bounded (cap != 0) and full, it removes the top element first.
+func (h *pq[T]) Push(x T) {
+	if h.cap != 0 && len(h.data) == h.cap {
+		h.Pop() // Bounded behavior: remove top element to make space.
+	}
+	h.data = append(h.data, x)
+	h.bubbleUp(len(h.data) - 1)
+}
+
+// Pop removes and returns the top element from the heap.
+// For a min-heap, this is the smallest element; for a max-heap, the largest.
+func (h *pq[T]) Pop() T {
+	if len(h.data) == 0 {
+		panic("heap: pop from empty heap")
+	}
+	top := h.data[0]
+	last := len(h.data) - 1
+	// Move the last element to the root and then shorten the slice.
+	h.data[0] = h.data[last]
+	h.data = h.data[:last]
+	h.bubbleDown(0)
 	return top
 }
 
-// Peek returns the highest priority item without removing it
-func (pq PriorityQueue) Peek() Item {
-	if len(pq) == 0 {
-		return Item{}
-	}
-	return pq[0]
+// Len returns the current number of elements in the heap.
+func (h *pq[T]) Len() int {
+	return len(h.data)
 }
 
-// Len returns the number of items in the queue
-func (pq PriorityQueue) Len() int {
-	return len(pq)
-}
-
-// heapifyUp maintains the heap property after Push
-func (pq PriorityQueue) heapifyUp(index int) {
-	for index > 0 {
-		parent := (index - 1) / 2
-		if pq[index].Priority <= pq[parent].Priority {
+// bubbleUp restores the heap property from index i upward.
+func (h *pq[T]) bubbleUp(i int) {
+	for i > 0 {
+		parent := (i - 1) / 2
+		if !h.compare(h.data[i], h.data[parent]) {
 			break
 		}
-		pq[index], pq[parent] = pq[parent], pq[index]
-		index = parent
+		h.data[i], h.data[parent] = h.data[parent], h.data[i]
+		i = parent
 	}
 }
 
-// heapifyDown maintains the heap property after Pop
-func (pq PriorityQueue) heapifyDown(index int) {
-	last := len(pq) - 1
+// bubbleDown restores the heap property from index i downward.
+func (h *pq[T]) bubbleDown(i int) {
+	n := len(h.data)
 	for {
-		left := 2*index + 1
-		right := 2*index + 2
-		largest := index
-
-		if left <= last && pq[left].Priority > pq[largest].Priority {
-			largest = left
+		best := i
+		left := 2*i + 1
+		right := 2*i + 2
+		if left < n && h.compare(h.data[left], h.data[best]) {
+			best = left
 		}
-		if right <= last && pq[right].Priority > pq[largest].Priority {
-			largest = right
+		if right < n && h.compare(h.data[right], h.data[best]) {
+			best = right
 		}
-		if largest == index {
+		if best == i {
 			break
 		}
-		pq[index], pq[largest] = pq[largest], pq[index]
-		index = largest
+		h.data[i], h.data[best] = h.data[best], h.data[i]
+		i = best
 	}
-}
-
-// Sort sorts the priority queue based on priority (highest first)
-func (pq *PriorityQueue) Sort() {
-	sort.SliceStable(*pq, func(i, j int) bool {
-		return (*pq)[i].Priority > (*pq)[j].Priority
-	})
-}
-
-// Update modifies an item and re-heapifies
-func (pq *PriorityQueue) Update(index int, newItem Item) {
-	if index < 0 || index >= len(*pq) {
-		return
-	}
-	oldPriority := (*pq)[index].Priority
-	(*pq)[index] = newItem
-	if newItem.Priority > oldPriority {
-		pq.heapifyUp(index)
-	} else {
-		pq.heapifyDown(index)
-	}
-}
-
-// Remove deletes an item at a given index
-func (pq *PriorityQueue) Remove(index int) {
-	n := len(*pq)
-	if index < 0 || index >= n {
-		return
-	}
-	(*pq)[index] = (*pq)[n-1]
-	*pq = (*pq)[:n-1]
-	pq.heapifyDown(index)
 }
