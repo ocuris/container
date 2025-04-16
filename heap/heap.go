@@ -16,7 +16,16 @@ type pq[T Ordered] struct {
 	min  bool // if true: min-heap; if false: max-heap
 }
 
-const defaultCap = 16
+const defaultCap = 0
+
+// New creates a new default min-heap.
+func New[T Ordered]() *pq[T] {
+	return &pq[T]{
+		data: make([]T, 0),
+		cap:  0,
+		min:  true,
+	}
+}
 
 // NewMin creates a new min-heap with an optional capacity.
 func NewMin[T Ordered](size ...int) *pq[T] {
